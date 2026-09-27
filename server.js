@@ -17,6 +17,7 @@ const MIME = {
 };
 
 const MARKET_INDEX_CHANNEL = 'tse_t00.tw';
+const DXY_SYMBOL = 'DX-Y.NYB';
 
 function parseQuoteItem(item) {
   const price = item.z && item.z !== '-' ? parseFloat(item.z) : parseFloat(item.pz || item.y);
@@ -48,6 +49,38 @@ async function fetchMis(exChCodes) {
   });
   const data = await res.json();
   return data.msgArray || [];
+}
+
+async function fetchForexIndex() {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${DXY_SYMBOL}?range=1d&interval=1m`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+    },
+  });
+  const data = await res.json();
+  const meta = data?.chart?.result?.[0]?.meta;
+  if (!meta || typeof meta.regularMarketPrice !== 'number') {
+    throw new Error('無法取得美元指數資料');
+  }
+  const price = meta.regularMarketPrice;
+  const prevClose = meta.previousClose ?? meta.chartPreviousClose;
+  const change = price - prevClose;
+  const changePercent = prevClose ? (change / prevClose) * 100 : 0;
+  const time = meta.regularMarketTime
+    ? new Date(meta.regularMarketTime * 1000).toLocaleTimeString('zh-Hant-TW', { timeZone: 'Asia/Taipei' })
+    : '';
+  return {
+    code: 'DXY',
+    name: '美元指數',
+    price,
+    prevClose,
+    high: meta.regularMarketDayHigh,
+    low: meta.regularMarketDayLow,
+    change,
+    changePercent,
+    time,
+  };
 }
 
 async function fetchQuotes(codes) {
@@ -113,6 +146,18 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: '抓取大盤指數失敗，請稍後再試' }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/forex-index') {
+    try {
+      const forex = await fetchForexIndex();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ forex }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '抓取美元指數失敗，請稍後再試' }));
     }
     return;
   }
