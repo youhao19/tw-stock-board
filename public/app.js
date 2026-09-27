@@ -9,6 +9,16 @@ const updateTimeEl = document.getElementById('update-time');
 const addForm = document.getElementById('add-form');
 const codeInput = document.getElementById('code-input');
 const refreshBtn = document.getElementById('refresh-btn');
+const sortBtn = document.getElementById('sort-btn');
+
+const SORT_MODES = ['none', 'desc', 'asc'];
+const SORT_LABELS = {
+  none: '依漲跌幅排序',
+  desc: '漲跌幅：高到低',
+  asc: '漲跌幅：低到高',
+};
+let sortMode = 'none';
+let lastQuotes = [];
 
 function loadWatchlist() {
   try {
@@ -52,22 +62,32 @@ function escapeHtml(value) {
   }[ch]));
 }
 
+function getSortedQuotes(quotes) {
+  if (sortMode === 'none') return quotes;
+  const sorted = [...quotes].sort((a, b) => a.changePercent - b.changePercent);
+  if (sortMode === 'desc') sorted.reverse();
+  return sorted;
+}
+
 function renderQuotes(quotes) {
   listEl.innerHTML = '';
   emptyMsgEl.hidden = quotes.length > 0;
 
-  quotes.forEach((q) => {
+  const sortedQuotes = getSortedQuotes(quotes);
+
+  sortedQuotes.forEach((q, index) => {
     const trend = q.change > 0 ? 'up' : q.change < 0 ? 'down' : 'flat';
     const sign = q.change > 0 ? '+' : '';
     const code = escapeHtml(q.code);
     const name = escapeHtml(q.name || q.code);
     const time = escapeHtml(q.time || '');
+    const rankBadge = sortMode === 'none' ? '' : `<span class="rank-badge">第 ${index + 1} 名</span>`;
     const card = document.createElement('div');
     card.className = 'stock-card';
     card.innerHTML = `
       <button class="remove-btn" data-code="${code}" title="移除">✕</button>
       <div class="row-top">
-        <div><span class="name">${name}</span><span class="code">${code}</span></div>
+        <div>${rankBadge}<span class="name">${name}</span><span class="code">${code}</span></div>
         <div class="price ${trend}">${formatNumber(q.price)}</div>
       </div>
       <div class="change-row">
@@ -107,7 +127,8 @@ async function fetchAndRender() {
       return;
     }
     showError(null);
-    renderQuotes(data.quotes);
+    lastQuotes = data.quotes;
+    renderQuotes(lastQuotes);
     updateTimeEl.textContent = `更新於 ${new Date().toLocaleTimeString('zh-Hant-TW')}`;
   } catch (err) {
     showError('無法連線到伺服器，請確認伺服器是否已啟動');
@@ -131,6 +152,13 @@ addForm.addEventListener('submit', (e) => {
 });
 
 refreshBtn.addEventListener('click', fetchAndRender);
+
+sortBtn.addEventListener('click', () => {
+  const nextIndex = (SORT_MODES.indexOf(sortMode) + 1) % SORT_MODES.length;
+  sortMode = SORT_MODES[nextIndex];
+  sortBtn.textContent = SORT_LABELS[sortMode];
+  renderQuotes(lastQuotes);
+});
 
 fetchAndRender();
 setInterval(fetchAndRender, REFRESH_INTERVAL_MS);
