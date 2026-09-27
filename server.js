@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
+const HOST = '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const STOCK_CODE_RE = /^\d{4,6}$/;
+const MAX_CODES = 30;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -12,7 +15,7 @@ const MIME = {
 };
 
 async function fetchQuotes(codes) {
-  const exChCodes = codes.map((c) => `tse_${c}.tw`).join('|');
+  const exChCodes = codes.map((c) => `tse_${encodeURIComponent(c)}.tw`).join('|');
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exChCodes}&json=1&delay=0`;
   const res = await fetch(url, {
     headers: {
@@ -47,15 +50,21 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/quotes') {
     const codesParam = url.searchParams.get('codes') || '';
-    const codes = codesParam
+    const rawCodes = codesParam
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (codes.length === 0) {
+    if (rawCodes.length === 0) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: '缺少股票代碼' }));
       return;
     }
+    if (rawCodes.length > MAX_CODES || !rawCodes.every((c) => STOCK_CODE_RE.test(c))) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '股票代碼格式不正確' }));
+      return;
+    }
+    const codes = rawCodes;
     try {
       const quotes = await fetchQuotes(codes);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -67,9 +76,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
-  filePath = path.join(PUBLIC_DIR, filePath);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  const requestedPath = url.pathname === '/' ? '/index.html' : url.pathname;
+  const filePath = path.normalize(path.join(PUBLIC_DIR, requestedPath));
+  if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -81,11 +90,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
+    });
     res.end(content);
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`台股快速看板已啟動：http://localhost:${PORT}`);
 });

@@ -42,6 +42,16 @@ function formatNumber(n, digits = 2) {
   return n.toLocaleString('zh-Hant-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
 function renderQuotes(quotes) {
   listEl.innerHTML = '';
   emptyMsgEl.hidden = quotes.length > 0;
@@ -49,17 +59,20 @@ function renderQuotes(quotes) {
   quotes.forEach((q) => {
     const trend = q.change > 0 ? 'up' : q.change < 0 ? 'down' : 'flat';
     const sign = q.change > 0 ? '+' : '';
+    const code = escapeHtml(q.code);
+    const name = escapeHtml(q.name || q.code);
+    const time = escapeHtml(q.time || '');
     const card = document.createElement('div');
     card.className = 'stock-card';
     card.innerHTML = `
-      <button class="remove-btn" data-code="${q.code}" title="移除">✕</button>
+      <button class="remove-btn" data-code="${code}" title="移除">✕</button>
       <div class="row-top">
-        <div><span class="name">${q.name || q.code}</span><span class="code">${q.code}</span></div>
+        <div><span class="name">${name}</span><span class="code">${code}</span></div>
         <div class="price ${trend}">${formatNumber(q.price)}</div>
       </div>
       <div class="change-row">
         <div class="change ${trend}">${sign}${formatNumber(q.change)} (${sign}${formatNumber(q.changePercent)}%)</div>
-        <div class="meta"><span>${q.time || ''}</span></div>
+        <div class="meta"><span>${time}</span></div>
       </div>
       <div class="meta">
         <span>開 ${formatNumber(q.open)}</span>
@@ -87,7 +100,7 @@ async function fetchAndRender() {
     return;
   }
   try {
-    const res = await fetch(`/api/quotes?codes=${watchlist.join(',')}`);
+    const res = await fetch(`/api/quotes?codes=${encodeURIComponent(watchlist.join(','))}`);
     const data = await res.json();
     if (!res.ok) {
       showError(data.error || '抓取股價失敗');
