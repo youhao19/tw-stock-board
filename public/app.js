@@ -26,6 +26,8 @@ function saveWatchlist(codes) {
 }
 
 let watchlist = loadWatchlist();
+const chartState = {};
+const CHART_STALE_MS = 5 * 60 * 1000;
 
 function showError(message) {
   if (!message) {
@@ -52,6 +54,124 @@ function escapeHtml(value) {
   }[ch]));
 }
 
+function formatChartDate(iso) {
+  const parts = String(iso).split('-');
+  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : iso;
+}
+
+function drawLineChart(canvas, history) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = canvas.clientWidth;
+  const cssHeight = canvas.clientHeight;
+  if (cssWidth === 0 || cssHeight === 0) return;
+  canvas.width = Math.max(1, Math.round(cssWidth * dpr));
+  canvas.height = Math.max(1, Math.round(cssHeight * dpr));
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+  if (!history.length) return;
+
+  const closes = history.map((h) => h.close);
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const padding = { top: 10, right: 8, bottom: 16, left: 8 };
+  const chartW = Math.max(0, cssWidth - padding.left - padding.right);
+  const chartH = Math.max(0, cssHeight - padding.top - padding.bottom);
+
+  const style = getComputedStyle(document.documentElement);
+  const trendUp = closes[closes.length - 1] >= closes[0];
+  const lineColor = (trendUp ? style.getPropertyValue('--up-color') : style.getPropertyValue('--down-color')).trim();
+
+  const xStep = history.length > 1 ? chartW / (history.length - 1) : 0;
+  const yFor = (v) => (max === min ? padding.top + chartH / 2 : padding.top + chartH - ((v - min) / (max - min)) * chartH);
+
+  ctx.beginPath();
+  history.forEach((h, i) => {
+    const x = padding.left + i * xStep;
+    const y = yFor(h.close);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.lineTo(padding.left + (history.length - 1) * xStep, padding.top + chartH);
+  ctx.lineTo(padding.left, padding.top + chartH);
+  ctx.closePath();
+  ctx.fillStyle = `${lineColor}22`;
+  ctx.fill();
+
+  ctx.fillStyle = style.getPropertyValue('--muted').trim();
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillText(formatChartDate(history[0].date), padding.left, cssHeight - 12);
+  ctx.textAlign = 'right';
+  ctx.fillText(formatChartDate(history[history.length - 1].date), cssWidth - padding.right, cssHeight - 12);
+}
+
+function renderChartPanel(card, code) {
+  if (!card) return;
+  const state = chartState[code];
+  let panel = card.querySelector('.chart-panel');
+  if (!state || !state.expanded) {
+    if (panel) panel.remove();
+    return;
+  }
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'chart-panel';
+    card.appendChild(panel);
+  }
+  if (state.loading) {
+    panel.innerHTML = '<p class="chart-status">載入走勢圖中…</p>';
+    return;
+  }
+  if (state.error) {
+    panel.innerHTML = `<p class="chart-status error">${escapeHtml(state.error)}</p>`;
+    return;
+  }
+  if (!state.data || state.data.length === 0) {
+    panel.innerHTML = '<p class="chart-status">尚無歷史資料</p>';
+    return;
+  }
+  panel.innerHTML = '<canvas class="chart-canvas"></canvas>';
+  drawLineChart(panel.querySelector('canvas'), state.data);
+}
+
+async function loadChartData(code) {
+  const state = chartState[code];
+  state.loading = true;
+  state.error = null;
+  renderChartPanel(listEl.querySelector(`.stock-card[data-code="${code}"]`), code);
+  try {
+    const res = await fetch(`/api/history?code=${encodeURIComponent(code)}&months=3`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '抓取歷史股價失敗');
+    state.data = data.history || [];
+    state.fetchedAt = Date.now();
+  } catch (err) {
+    state.error = err.message || '抓取歷史股價失敗';
+  } finally {
+    state.loading = false;
+    renderChartPanel(listEl.querySelector(`.stock-card[data-code="${code}"]`), code);
+  }
+}
+
+function toggleChartPanel(card, code) {
+  if (!chartState[code]) {
+    chartState[code] = { expanded: false, data: null, loading: false, error: null, fetchedAt: 0 };
+  }
+  const state = chartState[code];
+  state.expanded = !state.expanded;
+  renderChartPanel(card, code);
+  if (state.expanded && !state.loading && (!state.data || Date.now() - state.fetchedAt > CHART_STALE_MS)) {
+    loadChartData(code);
+  }
+}
+
 function renderQuotes(quotes) {
   listEl.innerHTML = '';
   emptyMsgEl.hidden = quotes.length > 0;
@@ -62,8 +182,10 @@ function renderQuotes(quotes) {
     const code = escapeHtml(q.code);
     const name = escapeHtml(q.name || q.code);
     const time = escapeHtml(q.time || '');
+    const expanded = chartState[q.code] && chartState[q.code].expanded;
     const card = document.createElement('div');
     card.className = 'stock-card';
+    card.dataset.code = code;
     card.innerHTML = `
       <button class="remove-btn" data-code="${code}" title="移除">✕</button>
       <div class="row-top">
@@ -80,15 +202,27 @@ function renderQuotes(quotes) {
         <span>低 ${formatNumber(q.low)}</span>
         <span>量 ${q.volume.toLocaleString('zh-Hant-TW')} 張</span>
       </div>
+      <button class="chart-btn" type="button">${expanded ? '收合走勢圖' : '📈 走勢圖'}</button>
     `;
     listEl.appendChild(card);
+    renderChartPanel(card, q.code);
   });
 
   listEl.querySelectorAll('.remove-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       watchlist = watchlist.filter((c) => c !== btn.dataset.code);
       saveWatchlist(watchlist);
+      delete chartState[btn.dataset.code];
       fetchAndRender();
+    });
+  });
+
+  listEl.querySelectorAll('.chart-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.stock-card');
+      const code = card.dataset.code;
+      toggleChartPanel(card, code);
+      btn.textContent = chartState[code].expanded ? '收合走勢圖' : '📈 走勢圖';
     });
   });
 }
