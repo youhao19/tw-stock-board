@@ -14,8 +14,29 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
 };
 
-async function fetchQuotes(codes) {
-  const exChCodes = codes.map((c) => `tse_${encodeURIComponent(c)}.tw`).join('|');
+const MARKET_INDEX_CHANNEL = 'tse_t00.tw';
+
+function parseQuoteItem(item) {
+  const price = item.z && item.z !== '-' ? parseFloat(item.z) : parseFloat(item.pz || item.y);
+  const prevClose = parseFloat(item.y);
+  const change = price - prevClose;
+  const changePercent = prevClose ? (change / prevClose) * 100 : 0;
+  return {
+    code: item.c,
+    name: item.n,
+    price,
+    prevClose,
+    open: parseFloat(item.o),
+    high: parseFloat(item.h),
+    low: parseFloat(item.l),
+    volume: parseInt(item.v, 10) || 0,
+    change,
+    changePercent,
+    time: item.t,
+  };
+}
+
+async function fetchMis(exChCodes) {
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exChCodes}&json=1&delay=0`;
   const res = await fetch(url, {
     headers: {
@@ -24,29 +45,35 @@ async function fetchQuotes(codes) {
     },
   });
   const data = await res.json();
-  return (data.msgArray || []).map((item) => {
-    const price = item.z && item.z !== '-' ? parseFloat(item.z) : parseFloat(item.pz || item.y);
-    const prevClose = parseFloat(item.y);
-    const change = price - prevClose;
-    const changePercent = prevClose ? (change / prevClose) * 100 : 0;
-    return {
-      code: item.c,
-      name: item.n,
-      price,
-      prevClose,
-      open: parseFloat(item.o),
-      high: parseFloat(item.h),
-      low: parseFloat(item.l),
-      volume: parseInt(item.v, 10) || 0,
-      change,
-      changePercent,
-      time: item.t,
-    };
-  });
+  return data.msgArray || [];
+}
+
+async function fetchQuotes(codes) {
+  const exChCodes = codes.map((c) => `tse_${encodeURIComponent(c)}.tw`).join('|');
+  const items = await fetchMis(exChCodes);
+  return items.map(parseQuoteItem);
+}
+
+async function fetchMarketIndex() {
+  const items = await fetchMis(MARKET_INDEX_CHANNEL);
+  if (!items.length) throw new Error('無大盤指數資料');
+  return parseQuoteItem(items[0]);
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === '/api/index') {
+    try {
+      const index = await fetchMarketIndex();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ index }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '抓取大盤指數失敗，請稍後再試' }));
+    }
+    return;
+  }
 
   if (url.pathname === '/api/quotes') {
     const codesParam = url.searchParams.get('codes') || '';
