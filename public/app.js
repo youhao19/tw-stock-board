@@ -2,6 +2,7 @@ const STORAGE_KEY = 'tw-watchlist';
 const DEFAULT_WATCHLIST = ['2330', '2317', '2454', '2412'];
 const REFRESH_INTERVAL_MS = 15000;
 
+const marketIndexEl = document.getElementById('market-index');
 const listEl = document.getElementById('stock-list');
 const emptyMsgEl = document.getElementById('empty-msg');
 const errorMsgEl = document.getElementById('error-msg');
@@ -93,6 +94,34 @@ function renderQuotes(quotes) {
   });
 }
 
+function renderMarketIndex(index) {
+  const trend = index.change > 0 ? 'up' : index.change < 0 ? 'down' : 'flat';
+  const sign = index.change > 0 ? '+' : '';
+  const name = escapeHtml(index.name || '加權指數');
+  const time = escapeHtml(index.time || '');
+  marketIndexEl.innerHTML = `
+    <div class="row-top">
+      <div class="name">${name}</div>
+      <div class="price ${trend}">${formatNumber(index.price)}</div>
+    </div>
+    <div class="change-row">
+      <div class="change ${trend}">${sign}${formatNumber(index.change)} (${sign}${formatNumber(index.changePercent)}%)</div>
+      <div class="meta"><span>${time}</span></div>
+    </div>
+  `;
+}
+
+async function fetchAndRenderIndex() {
+  try {
+    const res = await fetch('/api/index');
+    const data = await res.json();
+    if (!res.ok) return;
+    renderMarketIndex(data.index);
+  } catch (err) {
+    // 大盤指數抓取失敗時，不影響個股清單顯示
+  }
+}
+
 async function fetchAndRender() {
   if (watchlist.length === 0) {
     listEl.innerHTML = '';
@@ -130,7 +159,14 @@ addForm.addEventListener('submit', (e) => {
   fetchAndRender();
 });
 
-refreshBtn.addEventListener('click', fetchAndRender);
+refreshBtn.addEventListener('click', () => {
+  fetchAndRenderIndex();
+  fetchAndRender();
+});
 
+fetchAndRenderIndex();
 fetchAndRender();
-setInterval(fetchAndRender, REFRESH_INTERVAL_MS);
+setInterval(() => {
+  fetchAndRenderIndex();
+  fetchAndRender();
+}, REFRESH_INTERVAL_MS);

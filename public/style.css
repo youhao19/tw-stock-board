@@ -52,6 +52,52 @@ body {
   cursor: pointer;
 }
 
+.market-index {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  min-height: 20px;
+}
+
+.market-index:empty {
+  display: none;
+}
+
+.market-index .row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.market-index .name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.market-index .price {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.market-index .change-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.market-index .change {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.market-index .meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .add-form {
   display: flex;
   gap: 8px;
