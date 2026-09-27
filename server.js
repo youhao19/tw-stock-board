@@ -14,6 +14,40 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
 };
 
+const DXY_SYMBOL = 'DX-Y.NYB';
+
+async function fetchForexIndex() {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${DXY_SYMBOL}?range=1d&interval=1m`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+    },
+  });
+  const data = await res.json();
+  const meta = data?.chart?.result?.[0]?.meta;
+  if (!meta || typeof meta.regularMarketPrice !== 'number') {
+    throw new Error('無法取得美元指數資料');
+  }
+  const price = meta.regularMarketPrice;
+  const prevClose = meta.previousClose ?? meta.chartPreviousClose;
+  const change = price - prevClose;
+  const changePercent = prevClose ? (change / prevClose) * 100 : 0;
+  const time = meta.regularMarketTime
+    ? new Date(meta.regularMarketTime * 1000).toLocaleTimeString('zh-Hant-TW', { timeZone: 'Asia/Taipei' })
+    : '';
+  return {
+    code: 'DXY',
+    name: '美元指數',
+    price,
+    prevClose,
+    high: meta.regularMarketDayHigh,
+    low: meta.regularMarketDayLow,
+    change,
+    changePercent,
+    time,
+  };
+}
+
 async function fetchQuotes(codes) {
   const exChCodes = codes.map((c) => `tse_${encodeURIComponent(c)}.tw`).join('|');
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exChCodes}&json=1&delay=0`;
@@ -47,6 +81,18 @@ async function fetchQuotes(codes) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === '/api/forex-index') {
+    try {
+      const forex = await fetchForexIndex();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ forex }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '抓取美元指數失敗，請稍後再試' }));
+    }
+    return;
+  }
 
   if (url.pathname === '/api/quotes') {
     const codesParam = url.searchParams.get('codes') || '';

@@ -52,6 +52,17 @@ body {
   cursor: pointer;
 }
 
+.forex-section {
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
 .add-form {
   display: flex;
   gap: 8px;

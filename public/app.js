@@ -9,6 +9,8 @@ const updateTimeEl = document.getElementById('update-time');
 const addForm = document.getElementById('add-form');
 const codeInput = document.getElementById('code-input');
 const refreshBtn = document.getElementById('refresh-btn');
+const forexCardEl = document.getElementById('forex-card');
+const forexErrorMsgEl = document.getElementById('forex-error-msg');
 
 function loadWatchlist() {
   try {
@@ -93,6 +95,47 @@ function renderQuotes(quotes) {
   });
 }
 
+function renderForexIndex(forex) {
+  const trend = forex.change > 0 ? 'up' : forex.change < 0 ? 'down' : 'flat';
+  const sign = forex.change > 0 ? '+' : '';
+  const name = escapeHtml(forex.name || forex.code);
+  const code = escapeHtml(forex.code);
+  const time = escapeHtml(forex.time || '');
+  forexCardEl.innerHTML = `
+    <div class="stock-card">
+      <div class="row-top">
+        <div><span class="name">${name}</span><span class="code">${code}</span></div>
+        <div class="price ${trend}">${formatNumber(forex.price)}</div>
+      </div>
+      <div class="change-row">
+        <div class="change ${trend}">${sign}${formatNumber(forex.change)} (${sign}${formatNumber(forex.changePercent)}%)</div>
+        <div class="meta"><span>${time}</span></div>
+      </div>
+      <div class="meta">
+        <span>高 ${formatNumber(forex.high)}</span>
+        <span>低 ${formatNumber(forex.low)}</span>
+      </div>
+    </div>
+  `;
+}
+
+async function fetchAndRenderForexIndex() {
+  try {
+    const res = await fetch('/api/forex-index');
+    const data = await res.json();
+    if (!res.ok) {
+      forexErrorMsgEl.hidden = false;
+      forexErrorMsgEl.textContent = data.error || '抓取美元指數失敗';
+      return;
+    }
+    forexErrorMsgEl.hidden = true;
+    renderForexIndex(data.forex);
+  } catch (err) {
+    forexErrorMsgEl.hidden = false;
+    forexErrorMsgEl.textContent = '無法連線到伺服器，請確認伺服器是否已啟動';
+  }
+}
+
 async function fetchAndRender() {
   if (watchlist.length === 0) {
     listEl.innerHTML = '';
@@ -130,7 +173,12 @@ addForm.addEventListener('submit', (e) => {
   fetchAndRender();
 });
 
-refreshBtn.addEventListener('click', fetchAndRender);
+refreshBtn.addEventListener('click', () => {
+  fetchAndRender();
+  fetchAndRenderForexIndex();
+});
 
 fetchAndRender();
+fetchAndRenderForexIndex();
 setInterval(fetchAndRender, REFRESH_INTERVAL_MS);
+setInterval(fetchAndRenderForexIndex, REFRESH_INTERVAL_MS);
