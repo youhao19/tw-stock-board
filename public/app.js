@@ -269,7 +269,7 @@ function renderMarketIndex(index) {
 
 async function fetchAndRenderIndex() {
   try {
-    const res = await fetch('/api/index');
+    const res = await fetch('/api/market-index');
     const data = await res.json();
     if (!res.ok) return;
     renderMarketIndex(data.index);
